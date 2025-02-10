@@ -117,7 +117,7 @@ Here are some examples of how you can interact with the API using curl:
   **Expected Response**
   ```json
   {
-    "id": "generated-receipt-id
+    "id": "generated-receipt-id"
   }
 
 - **Retrieving Points for a Receipt**
