@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +48,7 @@ func GetPoints(w http.ResponseWriter, r *http.Request) {
 	// Find the points related to the receipt ID in the receiptStore, provide error response if not found
 	receipt, exists := receiptStore[receiptID]
 	if !exists {
-		sendErrorResponse(w, http.StatusNotFound, "Receipt not found")
+		sendErrorResponse(w, http.StatusNotFound, "No receipt found for that ID.")
 		return
 	}
 
@@ -55,7 +56,7 @@ func GetPoints(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(map[string]int{"points": receipt.Points})
 	if err != nil {
-		sendErrorResponse(w, http.StatusBadRequest, err.Error())
+		sendErrorResponse(w, http.StatusNotFound, "No receipt found for that ID.")
 		return
 	}
 }
@@ -140,12 +141,64 @@ func CalculatePoints(receipt IncomingReceipt) int {
 	return points
 }
 
+func validateReceipt(receipt IncomingReceipt) bool {
+	// Validate retailer
+	regExpRetailer := regexp.MustCompile("^[\\w\\s\\-&]+$")
+	if !regExpRetailer.MatchString(receipt.Retailer) {
+		return false
+	}
+
+	// Validate purchase date
+	_, err := time.Parse("2006-01-02", receipt.PurchaseDate)
+	if err != nil {
+		return false
+	}
+
+	// Validate purchase time
+	_, err = time.Parse("15:04", receipt.PurchaseTime)
+	if err != nil {
+		return false
+	}
+
+	// Validate items (must have at least 1 item)
+	if len(receipt.Items) == 0 {
+		return false
+	}
+
+	// Validate each item
+	for _, item := range receipt.Items {
+		regExpItemDesc := regexp.MustCompile("^[\\w\\s\\-]+$")
+		if !regExpItemDesc.MatchString(item.ShortDescription) {
+			return false
+		}
+
+		regExpPrice := regexp.MustCompile("^\\d+\\.\\d{2}$")
+		if !regExpPrice.MatchString(item.Price) {
+			return false
+		}
+	}
+
+	// Validate total amount
+	regExpTotal := regexp.MustCompile("^\\d+\\.\\d{2}$")
+	if !regExpTotal.MatchString(receipt.Total) {
+		return false
+	}
+
+	return true
+}
+
 func ProcessReceipts(w http.ResponseWriter, r *http.Request) {
 	var incomingReceipt IncomingReceipt
 
 	// Decode the incoming JSON request body into a Receipt struct
 	if err := json.NewDecoder(r.Body).Decode(&incomingReceipt); err != nil {
-		sendErrorResponse(w, http.StatusBadRequest, err.Error())
+		sendErrorResponse(w, http.StatusBadRequest, "The receipt is invalid.")
+		return
+	}
+
+	// Validate the incoming receipt
+	if !validateReceipt(incomingReceipt) {
+		sendErrorResponse(w, http.StatusBadRequest, "The receipt is invalid.")
 		return
 	}
 
@@ -163,7 +216,7 @@ func ProcessReceipts(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	err := json.NewEncoder(w).Encode(map[string]string{"status": "success", "id": newID})
 	if err != nil {
-		sendErrorResponse(w, http.StatusBadRequest, err.Error())
+		sendErrorResponse(w, http.StatusBadRequest, "The receipt is invalid.")
 		return
 	}
 }
